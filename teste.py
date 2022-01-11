@@ -20,6 +20,7 @@ cy=619.35980012
 @jit             
 def process_images(color_image, depth_image):
     color_image = np.frombuffer(color_image.get_buffer_as_uint8(), np.uint8)
+    #cv.imwrite("Color.png",color_image.reshape(480,640,3))
     color_image = color_image.reshape(480 * 640, 3)
     
     depth_image = np.frombuffer(depth_image.get_buffer_as_uint16(), np.uint16)
@@ -39,7 +40,9 @@ def process_images(color_image, depth_image):
     return color_image, new_points
 
     
-def exit_key(vis):
+def exit_key(vis,cena1, cena2):
+    print(cena1)
+    print(cena2)
     global exit_flag
     exit_flag=True
     
@@ -69,7 +72,7 @@ def main():
     visualizer=open3d.visualization.VisualizerWithKeyCallback()
     visualizer.create_window("Pointcloud", width=1000, height=700)
 
-    visualizer.register_key_action_callback(32,exit_key)
+    visualizer.register_key_action_callback(73,exit_key)
     visualizer.poll_events()
 
 
@@ -77,19 +80,17 @@ def main():
     pointcloud = open3d.geometry.PointCloud()
     visualizer.add_geometry(pointcloud)
     Axes = open3d.geometry.TriangleMesh.create_coordinate_frame(1)
-
+    ctr = visualizer.get_view_control()
+    parameters = open3d.io.read_pinhole_camera_parameters("ScreenCamera_2022-01-10-17-11-47.json")
+    ctr.convert_from_pinhole_camera_parameters(parameters)
     first = True
-    #skip=False
     while not exit_flag:
 
         # Get color image
         color_image = color_stream.read_frame()
         depth_image = depth_stream.read_frame()
 
-        #if skip:
-        #    skip=False
-        #    print("skipping")
-        #    pass
+
         color_image, new_points = process_images(color_image, depth_image)
         
         pointcloud.points = open3d.utility.Vector3dVector(new_points)
@@ -98,18 +99,16 @@ def main():
         if first:
             visualizer.reset_view_point(True)
             first = False
-
+        #pointcloud = pointcloud.voxel_down_sample(voxel_size=0.05)
         # Update visualizer
         visualizer.update_geometry(pointcloud)
         visualizer.poll_events()
         visualizer.update_renderer()
-        skip=True
 
     depth_stream.stop()
     color_stream.stop()
     openni2.unload()
     visualizer.destroy_window()
-    cv.destroyWindow("rgb")
 
 if __name__ == "__main__":
     main()
