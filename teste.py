@@ -56,8 +56,13 @@ def main():
     # Init openni
     openni_dir = "/home/pedro/OpenNI-Linux-x64-2.3/Redist"
     openni2.initialize(openni_dir)
-    copy_textured_mesh = open3d.io.read_triangle_mesh('drum.obj')
-    copy_textured_mesh.scale(10,copy_textured_mesh.get_center())
+    drum_n_1 = open3d.io.read_triangle_mesh('drum.obj')
+    drum_n_1.scale(7,drum_n_1.get_center())
+    drum_n_1.rotate(drum_n_1.get_rotation_matrix_from_xyz((np.pi/3,0,0)), center=(0,0,0))
+    drum_n_2 =copy.deepcopy(drum_n_1)
+    drum_n_1.translate((-150,0,400))
+    drum_n_2.translate((150,0,400))
+
     # Open astra depth stream (using openni)
     depth_device = openni2.Device.open_any()
     color_stream = depth_device.create_color_stream()
@@ -98,10 +103,11 @@ def main():
     # Create initial pointcloud
     pointcloud = open3d.geometry.PointCloud()
     visualizer.add_geometry(pointcloud)
-    #visualizer.add_geometry(copy_textured_mesh)
-    Axes = open3d.geometry.TriangleMesh.create_coordinate_frame(1)
-    #visualizer.add_geometry(Axes)
-    visualizer.run
+    visualizer.add_geometry(drum_n_1)
+    visualizer.add_geometry(drum_n_2)
+
+    Axes = open3d.geometry.TriangleMesh.create_coordinate_frame(10)
+    visualizer.add_geometry(Axes)
     
     first = True
     while not exit_flag:
@@ -115,9 +121,9 @@ def main():
         
         pointcloud.points = open3d.utility.Vector3dVector(new_points)
         pointcloud.colors = open3d.utility.Vector3dVector(color_image.astype(np.float64)/255)
-        print(pointcloud)
-        pointcloud = pointcloud.voxel_down_sample(voxel_size=0.05)
-        print("downsamped??",pointcloud)
+        # print(pointcloud)
+        # pointcloud = pointcloud.voxel_down_sample(voxel_size=0.05)
+        # print("downsamped??",pointcloud)
 
         if first:
             visualizer.reset_view_point(True)
