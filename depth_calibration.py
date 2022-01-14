@@ -3,6 +3,14 @@ import cv2
 import os
 from glob import glob
 
+"""
+old camera parameters
+fx=654.75924295
+fy=842.74853381
+cx=325.50911362
+cy=619.35980012
+"""
+
 isRGB = True
 images = np.load("images.npz")
 pattern_size = (6,9)
