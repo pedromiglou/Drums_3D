@@ -4,11 +4,18 @@ import open3d
 import time
 from copy import deepcopy
 import json
-import math
+import subprocess
 from playsound import playsound
+import os
+import sys
+
+if os.name == 'nt':
+    proc = subprocess.Popen(['ffplay.exe', '-i', '-'], stdin=subprocess.PIPE)
+else:
+    proc = subprocess.Popen(['ffplay', '-i', '-'], stdin=subprocess.PIPE)
 
 # False to use recorded video, True if live
-USE_CAMERA = True
+USE_CAMERA = False
 
 if USE_CAMERA:
     from openni import openni2
@@ -18,8 +25,12 @@ exit_flag=False
 width=640
 height=480
 
-async def playSound():
-    playsound('Kick_2.wav')
+def playSound():
+    f = open('Kick_2.wav', 'rb')
+    try:
+        proc.stdin.write(f.read())
+    except:
+        sys.exit(0)
 
 def process_images(color_stream, depth_stream):
     color_image = color_stream.read_frame()
@@ -245,6 +256,7 @@ def main():
         color_stream.stop()
         openni2.unload()
     visualizer.destroy_window()
+    proc.terminate()
 
 if __name__ == "__main__":
     main()
