@@ -4,18 +4,12 @@ import open3d
 import time
 from copy import deepcopy
 import json
-import subprocess
+import math
+import threading
 from playsound import playsound
-import os
-import sys
-
-if os.name == 'nt':
-    proc = subprocess.Popen(['ffplay.exe', '-i', '-'], stdin=subprocess.PIPE)
-else:
-    proc = subprocess.Popen(['ffplay', '-i', '-'], stdin=subprocess.PIPE)
 
 # False to use recorded video, True if live
-USE_CAMERA = False
+USE_CAMERA = True
 
 if USE_CAMERA:
     from openni import openni2
@@ -25,12 +19,8 @@ exit_flag=False
 width=640
 height=480
 
-def playSound():
-    f = open('Kick_2.wav', 'rb')
-    try:
-        proc.stdin.write(f.read())
-    except:
-        sys.exit(0)
+def play_music(file):
+    playsound(file)
 
 def process_images(color_stream, depth_stream):
     color_image = color_stream.read_frame()
@@ -46,6 +36,7 @@ def process_images(color_stream, depth_stream):
 def closestPointsCloud(pointcloud, min, max):
     bounds = open3d.geometry.AxisAlignedBoundingBox(np.array([-10000000, -10000000, min], dtype=np.float64), np.array([10000000, 10000000, max], dtype=np.float64))
     new_pointcloud = pointcloud.crop(bounds)
+    new_pointcloud.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
     new_pointcloud = new_pointcloud.uniform_down_sample(20)
     colors = new_pointcloud.colors
     points = new_pointcloud.points
@@ -98,7 +89,7 @@ def closestPointsCloud(pointcloud, min, max):
     else:
         hand_points = labeled_points[hand_labels[0][0]] + labeled_points[hand_labels[1][0]]
     
-    
+
     return new_pointcloud, hand_points
 
 def exit_key(vis,cena1, cena2):
@@ -113,7 +104,6 @@ def main():
         openni_dir = "/home/pedro/OpenNI-Linux-x64-2.3/Redist"
         openni2.initialize(openni_dir)
 
-        scene = open3d.t.geometry.RaycastingScene()
         # Open astra color and depth stream (using openni)
         depth_device = openni2.Device.open_any()
         color_stream = depth_device.create_color_stream()
@@ -131,14 +121,11 @@ def main():
     drum_n_1.rotate(drum_n_1.get_rotation_matrix_from_xyz((-np.pi/3,0,np.pi/6)), center=(0,0,0))
     drum_n_1.compute_triangle_normals()
     drum_n_2 = deepcopy(drum_n_1)
-    drum_n_1_tmesh = open3d.t.geometry.TriangleMesh.from_legacy(drum_n_1)
-    drum_n_2_tmesh = open3d.t.geometry.TriangleMesh.from_legacy(drum_n_2)
-    drum_n_1.translate((-60,0,-70))
-    drum_n_2.translate((0,0,-80))
-    drum_n_1_tmesh.translate((-60,0,-70))
-    drum_n_2_tmesh.translate((0,0,-80))
-    #drum1 = scene.add_triangles(drum_n_1_tmesh)
-    drum2 = scene.add_triangles(drum_n_2_tmesh)
+    drum_n_1.translate((-40,0,-70))
+    drum_n_2.translate((20,0,-80))
+    bbox1 = drum_n_1.get_oriented_bounding_box()
+    bbox2 = drum_n_2.get_oriented_bounding_box()
+
     visualizer=open3d.visualization.VisualizerWithKeyCallback()
     visualizer.create_window("Pointcloud", width=1000, height=700)
 
@@ -194,6 +181,8 @@ def main():
             i=0
     
     first = True
+    touching_d1 = False
+    touching_d2 = False
     while not exit_flag:
         if USE_CAMERA:
             color_image, depth_image = process_images(color_stream, depth_stream)
@@ -227,10 +216,46 @@ def main():
         new_pointcloud = new_pointcloud.crop(bounds)
 
         halfpointcloud, hand_points = closestPointsCloud(new_pointcloud, 20, 150)
+
+        #new_touching=False
+        if len(hand_points):
+            hand_points = np.vstack(hand_points)#, axis=1 )
+            #print(hand_points.shape)
+        else:
+            hand_points = np.zeros((1,3))
+        hand_points = open3d.utility.Vector3dVector(hand_points)
+
+
+        if len(bbox1.get_point_indices_within_bounding_box(hand_points)):
+            if not touching_d1:
+                x=threading.Thread(target=play_music,args=('Kick_2.wav',))
+                x.start()
+            touching_d1=True
+        else:
+            touching_d1=False
+        
+        if len(bbox2.get_point_indices_within_bounding_box(hand_points)):
+            if not touching_d2:
+                x=threading.Thread(target=play_music,args=('Kick_3.wav',))
+                x.start()
+            touching_d2=True
+        else:
+            touching_d2=False
+        
+        """
         for point in hand_points:
-            if scene.compute_distance(open3d.core.Tensor([[point[0], point[1], point[2]]], dtype=open3d.core.Dtype.Float32))<=200:
-                playSound()
+            if scene.compute_distance(open3d.core.Tensor([[point[0], point[1], point[2]]], dtype=open3d.core.Dtype.Float32))<=100:
+                new_touching=True
+                if not touching:
+                    x=threading.Thread(target=play_music,args=())
+                    x.start()
+
                 break
+        
+
+        
+        touching=new_touching
+        """
         #halfpointcloud.estimate_normals()
         # if halfpointcloud.has_normals():
         #     poisson_mesh = open3d.geometry.TriangleMesh.create_from_point_cloud_poisson(halfpointcloud, depth=8, width=0, scale=1.1, linear_fit=False)[0]
@@ -256,7 +281,6 @@ def main():
         color_stream.stop()
         openni2.unload()
     visualizer.destroy_window()
-    proc.terminate()
 
 if __name__ == "__main__":
     main()
