@@ -42,14 +42,8 @@ def closestPointsCloud(pointcloud, min, max):
     points = new_pointcloud.points
     
     #labels = DBSCAN([tuple(p) for p in points], lambda p1, p2: math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2 + (p2[2] - p1[2])**2), 10, 10)
-    labels = np.array(new_pointcloud.cluster_dbscan(eps=10, min_points=10))    
+    labels = np.array(new_pointcloud.cluster_dbscan(eps=5, min_points=10))    
     
-    for i in range(len(points)):
-        #if points[i][2]>=min and points[i][2]<=max:
-        if labels[i]==3:
-            colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
-    
-    new_pointcloud.colors=colors
     
     labeled_points=dict()
     for i in range(len(points)):
@@ -75,11 +69,12 @@ def closestPointsCloud(pointcloud, min, max):
     
     hand_labels = []
     for k,v in label_stats.items():
-        hand_labels.append((k,v[2]))
+        hand_labels.append((k,v))
         
         if len(hand_labels)>2:
-            hand_labels = sorted(hand_labels, key = lambda x: x[1])[:2]
+            hand_labels = sorted(hand_labels, key = lambda x: x[1][2])[:2]
     
+    hand_labels = sorted(hand_labels, key = lambda x: x[1][0])
 
     if len(hand_labels)==0:
         hand_points = []
@@ -89,13 +84,33 @@ def closestPointsCloud(pointcloud, min, max):
     else:
         hand_points = labeled_points[hand_labels[0][0]] + labeled_points[hand_labels[1][0]]
     
+    centroids = [x[1] for x in hand_labels]
+    
+    for i in range(len(points)):
+        if labels[i] in [h[0] for h in hand_labels]:
+            print("GOES RED?")
+            colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
+    new_pointcloud.colors=colors
+    return new_pointcloud, hand_points, centroids
 
-    return new_pointcloud, hand_points
 
 def exit_key(vis,cena1, cena2):
     global exit_flag
     exit_flag=True
     
+
+def validate_movement(prev_centroids, centroids, this_drum):
+    if len(prev_centroids)==len(centroids):
+        if len(centroids)==1:
+            return math.sqrt((prev_centroids[0][0]-centroids[0][0])**2 + (prev_centroids[0][1]-centroids[0][1])**2 + (prev_centroids[0][2]-centroids[0][2])**2) > 10
+
+        if len(centroids)==2:
+            if math.sqrt((this_drum[0]-centroids[0][0])**2 + (this_drum[1]-centroids[0][1])**2 + (this_drum[2]-centroids[0][2])**2) > math.sqrt((this_drum[0]-centroids[1][0])**2 + (this_drum[1]-centroids[1][1])**2 + (this_drum[2]-centroids[1][2])**2):
+                return math.sqrt((prev_centroids[1][0]-centroids[1][0])**2 + (prev_centroids[1][1]-centroids[1][1])**2 + (prev_centroids[1][2]-centroids[1][2])**2) > 10
+            else:
+                return math.sqrt((prev_centroids[0][0]-centroids[0][0])**2 + (prev_centroids[0][1]-centroids[0][1])**2 + (prev_centroids[0][2]-centroids[0][2])**2) > 10
+
+
 def main():
     global width, height, exit_flag, USE_CAMERA
     
@@ -144,24 +159,25 @@ def main():
         cy=parameters["intrinsic_matrix"][7]
         )
     # extrinsic parameters
-    cam = ctr.convert_to_pinhole_camera_parameters()
-    cam.extrinsic = np.array([[0.98930435683780737,
-		0.078989956342454412,
-		0.12262738820813895,
-		0.0],[
-		-0.0067297944331818974,
-		0.86450697581859415,
-		-0.50257576406734517,
-		0.0],[
-		-0.14571067019480621,
-		0.49637513591839566,
-		0.85579210386248294,
-		0.0],[
-		-23.560800573547034,
-		26.969907112825666,
-		434.30442709125299,
-		1.0]])
-    ctr.convert_from_pinhole_camera_parameters(cam)
+    # cam = ctr.convert_to_pinhole_camera_parameters()
+    # cam.extrinsic = np.array([[-0.74559452800771997,
+	# 	-0.56930955431936081,
+	# 	0.34637469764062756,
+	# 	0.0],[
+	# 	0.15162805844565005,
+	# 	-0.65106753802521089,
+	# 	-0.74372037273547464,
+	# 	0.0],[
+	# 	0.64892043556737211,
+	# 	-0.50199371738148435,
+	# 	0.57175569609105836,
+	# 	0.0],[
+	# 	22.493531690931363,
+	# 	-30.549164517789492,
+	# 	307.79092762535629,
+	# 	1.0]])
+    ctr.rotate(1000000,0)
+    #ctr.convert_from_pinhole_camera_parameters(cam)
     visualizer.register_key_action_callback(73,exit_key)
     visualizer.poll_events()
 
@@ -180,9 +196,10 @@ def main():
             color_images=data["color_images"]
             i=0
     
-    first = True
     touching_d1 = False
     touching_d2 = False
+    prev_centroids = []
+    visualizer.update_renderer()
     while not exit_flag:
         if USE_CAMERA:
             color_image, depth_image = process_images(color_stream, depth_stream)
@@ -215,9 +232,8 @@ def main():
         bounds = open3d.geometry.AxisAlignedBoundingBox(np.array([-10000000, -10000000, 1], dtype=np.float64), np.array([10000000, 10000000, 10000000], dtype=np.float64))
         new_pointcloud = new_pointcloud.crop(bounds)
 
-        halfpointcloud, hand_points = closestPointsCloud(new_pointcloud, 20, 150)
-
-        #new_touching=False
+        halfpointcloud, hand_points, centroids = closestPointsCloud(new_pointcloud, 20, 150)
+        
         if len(hand_points):
             hand_points = np.vstack(hand_points)#, axis=1 )
             #print(hand_points.shape)
@@ -227,7 +243,8 @@ def main():
 
 
         if len(bbox1.get_point_indices_within_bounding_box(hand_points)):
-            if not touching_d1:
+            if not touching_d1 and validate_movement(prev_centroids, centroids, bbox1.get_center()):
+
                 x=threading.Thread(target=play_music,args=('Kick_2.wav',))
                 x.start()
             touching_d1=True
@@ -235,12 +252,15 @@ def main():
             touching_d1=False
         
         if len(bbox2.get_point_indices_within_bounding_box(hand_points)):
-            if not touching_d2:
+            
+            if not touching_d2 and validate_movement(prev_centroids, centroids, bbox2.get_center()):
                 x=threading.Thread(target=play_music,args=('Kick_3.wav',))
                 x.start()
             touching_d2=True
         else:
             touching_d2=False
+    
+        prev_centroids = centroids
         
         """
         for point in hand_points:
@@ -256,21 +276,16 @@ def main():
         
         touching=new_touching
         """
-        #halfpointcloud.estimate_normals()
-        # if halfpointcloud.has_normals():
-        #     poisson_mesh = open3d.geometry.TriangleMesh.create_from_point_cloud_poisson(halfpointcloud, depth=8, width=0, scale=1.1, linear_fit=False)[0]
         
         # flip pointcloud
         new_pointcloud.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-        
-        # Set rendered pointcloud to recorded pointcloud
-        pointcloud.points = new_pointcloud.points
-        pointcloud.colors = new_pointcloud.colors
-        
+        halfpointcloud.points.extend(new_pointcloud.points)
+        halfpointcloud.colors.extend(new_pointcloud.colors)
 
-        if first:
-            visualizer.reset_view_point(True)
-            first = False
+        # Set rendered pointcloud to recorded pointcloud
+        pointcloud.points = halfpointcloud.points
+        pointcloud.colors = halfpointcloud.colors
+        
         # Update visualizer
         visualizer.update_geometry(pointcloud)
         visualizer.poll_events()
