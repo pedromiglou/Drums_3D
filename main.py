@@ -35,6 +35,7 @@ def process_images(color_stream, depth_stream):
 
 def closestPointsCloud(pointcloud, min, max):
     bounds = open3d.geometry.AxisAlignedBoundingBox(np.array([-10000000, -10000000, min], dtype=np.float64), np.array([10000000, 10000000, max], dtype=np.float64))
+
     new_pointcloud = pointcloud.crop(bounds)
     new_pointcloud.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
     new_pointcloud = new_pointcloud.uniform_down_sample(20)
@@ -42,7 +43,10 @@ def closestPointsCloud(pointcloud, min, max):
     points = new_pointcloud.points
     
     #labels = DBSCAN([tuple(p) for p in points], lambda p1, p2: math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2 + (p2[2] - p1[2])**2), 10, 10)
-    labels = np.array(new_pointcloud.cluster_dbscan(eps=5, min_points=10))    
+    if new_pointcloud.is_empty():
+        labels = []
+    else:
+        labels = np.array(new_pointcloud.cluster_dbscan(eps=5, min_points=10))    
     
     
     labeled_points=dict()
@@ -88,7 +92,6 @@ def closestPointsCloud(pointcloud, min, max):
     
     for i in range(len(points)):
         if labels[i] in [h[0] for h in hand_labels]:
-            print("GOES RED?")
             colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
     new_pointcloud.colors=colors
     return new_pointcloud, hand_points, centroids
@@ -129,7 +132,7 @@ def main():
         color_stream.start()
         
         depth_device.set_image_registration_mode(openni2.IMAGE_REGISTRATION_DEPTH_TO_COLOR)
-    
+
     # read drum, position it and duplicate it
     drum_n_1 = open3d.io.read_triangle_mesh('drum.obj')
     drum_n_1.scale(1.7,drum_n_1.get_center())
@@ -145,41 +148,22 @@ def main():
     visualizer.create_window("Pointcloud", width=1000, height=700)
 
     ctr = visualizer.get_view_control()
-    
-    # get intrinsic parameters
+    camera_params = open3d.io.read_pinhole_camera_parameters("PinholeCameraParameters.json")
+    ctr.convert_from_pinhole_camera_parameters(camera_params)
+
     f = open("PinholeCameraParameters.json","r")
-    parameters = json.loads(f.read())["intrinsic"]
+    parameters = json.loads(f.read())
     f.close()
-    parameters = open3d.camera.PinholeCameraIntrinsic(
-        width=parameters["width"],
-        height=parameters["height"],
-        fx=parameters["intrinsic_matrix"][0],
-        fy=parameters["intrinsic_matrix"][4],
-        cx=parameters["intrinsic_matrix"][6],
-        cy=parameters["intrinsic_matrix"][7]
+    i_parameters = open3d.camera.PinholeCameraIntrinsic(
+        width=parameters['intrinsic']["width"],
+        height=parameters['intrinsic']["height"],
+        fx=parameters['intrinsic']["intrinsic_matrix"][0],
+        fy=parameters['intrinsic']["intrinsic_matrix"][4],
+        cx=parameters['intrinsic']["intrinsic_matrix"][6],
+        cy=parameters['intrinsic']["intrinsic_matrix"][7]
         )
-    # extrinsic parameters
-    # cam = ctr.convert_to_pinhole_camera_parameters()
-    # cam.extrinsic = np.array([[-0.74559452800771997,
-	# 	-0.56930955431936081,
-	# 	0.34637469764062756,
-	# 	0.0],[
-	# 	0.15162805844565005,
-	# 	-0.65106753802521089,
-	# 	-0.74372037273547464,
-	# 	0.0],[
-	# 	0.64892043556737211,
-	# 	-0.50199371738148435,
-	# 	0.57175569609105836,
-	# 	0.0],[
-	# 	22.493531690931363,
-	# 	-30.549164517789492,
-	# 	307.79092762535629,
-	# 	1.0]])
-    ctr.rotate(1000000,0)
-    #ctr.convert_from_pinhole_camera_parameters(cam)
+
     visualizer.register_key_action_callback(73,exit_key)
-    visualizer.poll_events()
 
     # Create initial pointcloud
     pointcloud = open3d.geometry.PointCloud()
@@ -200,6 +184,10 @@ def main():
     touching_d2 = False
     prev_centroids = []
     visualizer.update_renderer()
+    ctr.translate(0,300)
+    ctr.rotate(1000,300)
+    ctr.set_lookat(np.array([-15,-50,0]))
+    ctr.set_zoom(2)
     while not exit_flag:
         if USE_CAMERA:
             color_image, depth_image = process_images(color_stream, depth_stream)
@@ -226,7 +214,7 @@ def main():
         )
         new_pointcloud = open3d.geometry.PointCloud.create_from_rgbd_image(
             rgbd,
-            intrinsic=parameters,
+            intrinsic=i_parameters,
         )
 
         bounds = open3d.geometry.AxisAlignedBoundingBox(np.array([-10000000, -10000000, 1], dtype=np.float64), np.array([10000000, 10000000, 10000000], dtype=np.float64))
@@ -278,7 +266,10 @@ def main():
         """
         
         # flip pointcloud
-        new_pointcloud.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+        new_pointcloud.transform([  [1, 0, 0, 0],
+                                    [0, -1, 0, 0],
+                                    [0, 0, -1, 0],
+                                    [0, 0, 0, 1]])
         halfpointcloud.points.extend(new_pointcloud.points)
         halfpointcloud.colors.extend(new_pointcloud.colors)
 
