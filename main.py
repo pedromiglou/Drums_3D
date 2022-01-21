@@ -6,11 +6,13 @@ from copy import deepcopy
 import json
 import math
 import threading
-from playsound import playsound
-
+import os
+os.environ['SDL_AUDIODRIVER'] = 'alsa'
+import pygame
 # False to use recorded video, True if live
 USE_CAMERA = True
-
+pygame.init()
+pygame.mixer.init()
 if USE_CAMERA:
     from openni import openni2
     from openni import _openni2
@@ -19,8 +21,12 @@ exit_flag=False
 width=640
 height=480
 
-def play_music(file):
-    playsound(file)
+def play_music(file, speed):
+    sound = pygame.mixer.Sound(file)
+    amplitude = speed*0.01
+    print(amplitude)
+    sound.set_volume(amplitude)
+    sound.play()
 
 def process_images(color_stream, depth_stream):
     color_image = color_stream.read_frame()
@@ -38,11 +44,10 @@ def closestPointsCloud(pointcloud, min, max):
 
     new_pointcloud = pointcloud.crop(bounds)
     new_pointcloud.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-    new_pointcloud = new_pointcloud.uniform_down_sample(20)
+    new_pointcloud = new_pointcloud.voxel_down_sample(20)
     colors = new_pointcloud.colors
     points = new_pointcloud.points
     
-    #labels = DBSCAN([tuple(p) for p in points], lambda p1, p2: math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2 + (p2[2] - p1[2])**2), 10, 10)
     if new_pointcloud.is_empty():
         labels = []
     else:
@@ -105,13 +110,13 @@ def exit_key(vis,cena1, cena2):
 def validate_movement(prev_centroids, centroids, this_drum):
     if len(prev_centroids)==len(centroids):
         if len(centroids)==1:
-            return math.sqrt((prev_centroids[0][0]-centroids[0][0])**2 + (prev_centroids[0][1]-centroids[0][1])**2 + (prev_centroids[0][2]-centroids[0][2])**2) > 10
+            return math.sqrt((prev_centroids[0][0]-centroids[0][0])**2 + (prev_centroids[0][1]-centroids[0][1])**2 + (prev_centroids[0][2]-centroids[0][2])**2)
 
         if len(centroids)==2:
             if math.sqrt((this_drum[0]-centroids[0][0])**2 + (this_drum[1]-centroids[0][1])**2 + (this_drum[2]-centroids[0][2])**2) > math.sqrt((this_drum[0]-centroids[1][0])**2 + (this_drum[1]-centroids[1][1])**2 + (this_drum[2]-centroids[1][2])**2):
-                return math.sqrt((prev_centroids[1][0]-centroids[1][0])**2 + (prev_centroids[1][1]-centroids[1][1])**2 + (prev_centroids[1][2]-centroids[1][2])**2) > 10
+                return math.sqrt((prev_centroids[1][0]-centroids[1][0])**2 + (prev_centroids[1][1]-centroids[1][1])**2 + (prev_centroids[1][2]-centroids[1][2])**2)
             else:
-                return math.sqrt((prev_centroids[0][0]-centroids[0][0])**2 + (prev_centroids[0][1]-centroids[0][1])**2 + (prev_centroids[0][2]-centroids[0][2])**2) > 10
+                return math.sqrt((prev_centroids[0][0]-centroids[0][0])**2 + (prev_centroids[0][1]-centroids[0][1])**2 + (prev_centroids[0][2]-centroids[0][2])**2)
 
 
 def main():
@@ -170,7 +175,6 @@ def main():
     visualizer.add_geometry(pointcloud)
     visualizer.add_geometry(drum_n_1)
     visualizer.add_geometry(drum_n_2)
-
     Axes = open3d.geometry.TriangleMesh.create_coordinate_frame(10)
     visualizer.add_geometry(Axes)
     
@@ -229,41 +233,38 @@ def main():
             hand_points = np.zeros((1,3))
         hand_points = open3d.utility.Vector3dVector(hand_points)
 
-
+        movement_speed = validate_movement(prev_centroids, centroids, bbox1.get_center())
         if len(bbox1.get_point_indices_within_bounding_box(hand_points)):
-            if not touching_d1 and validate_movement(prev_centroids, centroids, bbox1.get_center()):
+            if not touching_d1 and movement_speed != None and movement_speed > 7:
 
-                x=threading.Thread(target=play_music,args=('Kick_2.wav',))
+                x=threading.Thread(target=play_music,args=('Kick_2.wav',movement_speed))
                 x.start()
+                drum_n_1.paint_uniform_color(np.array([0.4,0.7,0.4], dtype=np.float64))
+            else:
+                drum_n_1.paint_uniform_color(np.array([0.7,0.4,0.4], dtype=np.float64))
+            visualizer.update_geometry(drum_n_1)
             touching_d1=True
         else:
+            drum_n_1.paint_uniform_color(np.array([0.8,0.8,0.8], dtype=np.float64))
+            visualizer.update_geometry(drum_n_1)
             touching_d1=False
         
         if len(bbox2.get_point_indices_within_bounding_box(hand_points)):
             
-            if not touching_d2 and validate_movement(prev_centroids, centroids, bbox2.get_center()):
-                x=threading.Thread(target=play_music,args=('Kick_3.wav',))
+            if not touching_d2 and movement_speed != None and movement_speed > 7:
+                x=threading.Thread(target=play_music,args=('Kick_3.wav',movement_speed))
                 x.start()
+                drum_n_2.paint_uniform_color(np.array([0.4,0.7,0.4], dtype=np.float64))
+            else:
+                drum_n_2.paint_uniform_color(np.array([0.7,0.4,0.4], dtype=np.float64))
+            visualizer.update_geometry(drum_n_2)
             touching_d2=True
         else:
+            drum_n_2.paint_uniform_color(np.array([0.8,0.8,0.8], dtype=np.float64))
+            visualizer.update_geometry(drum_n_2)
             touching_d2=False
     
         prev_centroids = centroids
-        
-        """
-        for point in hand_points:
-            if scene.compute_distance(open3d.core.Tensor([[point[0], point[1], point[2]]], dtype=open3d.core.Dtype.Float32))<=100:
-                new_touching=True
-                if not touching:
-                    x=threading.Thread(target=play_music,args=())
-                    x.start()
-
-                break
-        
-
-        
-        touching=new_touching
-        """
         
         # flip pointcloud
         new_pointcloud.transform([  [1, 0, 0, 0],
