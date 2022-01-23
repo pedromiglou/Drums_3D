@@ -7,28 +7,29 @@ import json
 import math
 import threading
 import os
-os.environ['SDL_AUDIODRIVER'] = 'alsa'
 import pygame
-# False to use recorded video, True if live
-USE_CAMERA = True
+from openni import openni2
+from openni import _openni2
+
+os.environ['SDL_AUDIODRIVER'] = 'alsa'
 pygame.init()
 pygame.mixer.init()
-if USE_CAMERA:
-    from openni import openni2
-    from openni import _openni2
 
 exit_flag=False
 width=640
 height=480
 
+
 def play_music(file, speed):
+    """play sound from a certain file"""
     sound = pygame.mixer.Sound(file)
     amplitude = speed*0.01
-    print(amplitude)
     sound.set_volume(amplitude)
     sound.play()
 
+
 def process_images(color_stream, depth_stream):
+    """return a color and a depth frame from a color and a depth stream"""
     color_image = color_stream.read_frame()
     depth_image = depth_stream.read_frame()
 
@@ -39,7 +40,9 @@ def process_images(color_stream, depth_stream):
 
     return color_image, depth_image
 
-def closestPointsCloud(pointcloud, min, max):
+
+def handsPointsCloud(pointcloud, min, max):
+    """search for the point clusters closest to the camera inside a certain z-axis interval"""
     bounds = open3d.geometry.AxisAlignedBoundingBox(np.array([-10000000, -10000000, min], dtype=np.float64), np.array([10000000, 10000000, max], dtype=np.float64))
 
     new_pointcloud = pointcloud.crop(bounds)
@@ -51,9 +54,10 @@ def closestPointsCloud(pointcloud, min, max):
     if new_pointcloud.is_empty():
         labels = []
     else:
+        # obtain the labels for each point
         labels = np.array(new_pointcloud.cluster_dbscan(eps=5, min_points=10))    
     
-    
+    # organize the points into lists of points that belong to the same cluster
     labeled_points=dict()
     for i in range(len(points)):
         if labels[i] in labeled_points:
@@ -61,7 +65,7 @@ def closestPointsCloud(pointcloud, min, max):
         else:
             labeled_points[labels[i]] = [points[i]]
     
-    
+    # calculate centroids
     label_stats = dict()
     for i in range(len(points)):
         if labels[i] in label_stats:
@@ -75,7 +79,7 @@ def closestPointsCloud(pointcloud, min, max):
     for k, v in label_stats.items():
         label_stats[k] = [v[0]/v[3], v[1]/v[3], v[2]/v[3]]
     
-    
+    # filter the two centroids closest to the camera
     hand_labels = []
     for k,v in label_stats.items():
         hand_labels.append((k,v))
@@ -85,6 +89,9 @@ def closestPointsCloud(pointcloud, min, max):
     
     hand_labels = sorted(hand_labels, key = lambda x: x[1][0])
 
+    centroids = [x[1] for x in hand_labels]
+
+    # get the points that belong to the hands
     if len(hand_labels)==0:
         hand_points = []
     
@@ -93,21 +100,23 @@ def closestPointsCloud(pointcloud, min, max):
     else:
         hand_points = labeled_points[hand_labels[0][0]] + labeled_points[hand_labels[1][0]]
     
-    centroids = [x[1] for x in hand_labels]
-    
+    # paint red the points that belong to the hand clusters
     for i in range(len(points)):
         if labels[i] in [h[0] for h in hand_labels]:
             colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
     new_pointcloud.colors=colors
+
     return new_pointcloud, hand_points, centroids
 
 
-def exit_key(vis,cena1, cena2):
+def exit_key(vis):
+    """callback function to exit open3D environment"""
     global exit_flag
     exit_flag=True
     
 
-def validate_movement(prev_centroids, centroids, this_drum):
+def movement_speed(prev_centroids, centroids, this_drum):
+    """obtain the speed of the movement / distance difference between the actual and last position of the centroid closest to a drum"""
     if len(prev_centroids)==len(centroids):
         if len(centroids)==1:
             return math.sqrt((prev_centroids[0][0]-centroids[0][0])**2 + (prev_centroids[0][1]-centroids[0][1])**2 + (prev_centroids[0][2]-centroids[0][2])**2)
@@ -120,23 +129,22 @@ def validate_movement(prev_centroids, centroids, this_drum):
 
 
 def main():
-    global width, height, exit_flag, USE_CAMERA
+    global width, height, exit_flag
     
-    if USE_CAMERA:
-        # Init openni
-        openni_dir = "/home/pedro/OpenNI-Linux-x64-2.3/Redist"
-        openni2.initialize(openni_dir)
+    # Init openni
+    openni_dir = "/home/pedro/OpenNI-Linux-x64-2.3/Redist"
+    openni2.initialize(openni_dir)
 
-        # Open astra color and depth stream (using openni)
-        depth_device = openni2.Device.open_any()
-        color_stream = depth_device.create_color_stream()
-        depth_stream = depth_device.create_depth_stream()
-        depth_stream.set_video_mode(_openni2.OniVideoMode(pixelFormat = _openni2.OniPixelFormat.ONI_PIXEL_FORMAT_DEPTH_100_UM, resolutionX = 640, resolutionY = 480, fps = 30))
-        color_stream.set_video_mode(_openni2.OniVideoMode(pixelFormat = _openni2.OniPixelFormat.ONI_PIXEL_FORMAT_RGB888, resolutionX = 640, resolutionY = 480, fps = 30))
-        depth_stream.start()
-        color_stream.start()
-        
-        depth_device.set_image_registration_mode(openni2.IMAGE_REGISTRATION_DEPTH_TO_COLOR)
+    # Open astra color and depth stream (using openni)
+    depth_device = openni2.Device.open_any()
+    color_stream = depth_device.create_color_stream()
+    depth_stream = depth_device.create_depth_stream()
+    depth_stream.set_video_mode(_openni2.OniVideoMode(pixelFormat = _openni2.OniPixelFormat.ONI_PIXEL_FORMAT_DEPTH_100_UM, resolutionX = 640, resolutionY = 480, fps = 30))
+    color_stream.set_video_mode(_openni2.OniVideoMode(pixelFormat = _openni2.OniPixelFormat.ONI_PIXEL_FORMAT_RGB888, resolutionX = 640, resolutionY = 480, fps = 30))
+    depth_stream.start()
+    color_stream.start()
+    
+    depth_device.set_image_registration_mode(openni2.IMAGE_REGISTRATION_DEPTH_TO_COLOR)
 
     # read drum, position it and duplicate it
     drum_n_1 = open3d.io.read_triangle_mesh('drum.obj')
@@ -178,12 +186,6 @@ def main():
     Axes = open3d.geometry.TriangleMesh.create_coordinate_frame(10)
     visualizer.add_geometry(Axes)
     
-    if not USE_CAMERA:
-        with np.load('images.npz') as data:
-            depth_images=data["depth_images"]
-            color_images=data["color_images"]
-            i=0
-    
     touching_d1 = False
     touching_d2 = False
     prev_centroids = []
@@ -193,14 +195,7 @@ def main():
     ctr.set_lookat(np.array([-15,-50,0]))
     ctr.set_zoom(2)
     while not exit_flag:
-        if USE_CAMERA:
-            color_image, depth_image = process_images(color_stream, depth_stream)
-        else:
-            color_image = color_images[i]
-            depth_image = depth_images[i]
-
-            i+=1
-            time.sleep(0.2)
+        color_image, depth_image = process_images(color_stream, depth_stream)
         
         color_image = color_image.reshape(480, 640,3)
 
@@ -224,16 +219,15 @@ def main():
         bounds = open3d.geometry.AxisAlignedBoundingBox(np.array([-10000000, -10000000, 1], dtype=np.float64), np.array([10000000, 10000000, 10000000], dtype=np.float64))
         new_pointcloud = new_pointcloud.crop(bounds)
 
-        halfpointcloud, hand_points, centroids = closestPointsCloud(new_pointcloud, 20, 150)
+        halfpointcloud, hand_points, centroids = handsPointsCloud(new_pointcloud, 20, 150)
         
         if len(hand_points):
-            hand_points = np.vstack(hand_points)#, axis=1 )
-            #print(hand_points.shape)
+            hand_points = np.vstack(hand_points)
         else:
             hand_points = np.zeros((1,3))
         hand_points = open3d.utility.Vector3dVector(hand_points)
 
-        movement_speed = validate_movement(prev_centroids, centroids, bbox1.get_center())
+        movement_speed = movement_speed(prev_centroids, centroids, bbox1.get_center())
         if len(bbox1.get_point_indices_within_bounding_box(hand_points)):
             if not touching_d1 and movement_speed != None and movement_speed > 7:
 
@@ -283,10 +277,9 @@ def main():
         visualizer.poll_events()
         visualizer.update_renderer()
         
-    if USE_CAMERA:
-        depth_stream.stop()
-        color_stream.stop()
-        openni2.unload()
+    depth_stream.stop()
+    color_stream.stop()
+    openni2.unload()
     visualizer.destroy_window()
 
 if __name__ == "__main__":
