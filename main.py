@@ -240,8 +240,7 @@ def main():
                 x=threading.Thread(target=play_music,args=('Kick_2.wav',movement_speed))
                 x.start()
                 drum_n_1.paint_uniform_color(np.array([0.4,0.7,0.4], dtype=np.float64))
-            else:
-                drum_n_1.paint_uniform_color(np.array([0.7,0.4,0.4], dtype=np.float64))
+            drum_n_1.paint_uniform_color(np.array([0.7,0.4,0.4], dtype=np.float64))
             visualizer.update_geometry(drum_n_1)
             touching_d1=True
         else:
@@ -254,9 +253,7 @@ def main():
             if not touching_d2 and movement_speed != None and movement_speed > 7:
                 x=threading.Thread(target=play_music,args=('Kick_3.wav',movement_speed))
                 x.start()
-                drum_n_2.paint_uniform_color(np.array([0.4,0.7,0.4], dtype=np.float64))
-            else:
-                drum_n_2.paint_uniform_color(np.array([0.7,0.4,0.4], dtype=np.float64))
+            drum_n_2.paint_uniform_color(np.array([0.7,0.4,0.4], dtype=np.float64))
             visualizer.update_geometry(drum_n_2)
             touching_d2=True
         else:
