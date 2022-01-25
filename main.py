@@ -100,11 +100,12 @@ def handsPointsCloud(pointcloud, min, max):
     else:
         hand_points = labeled_points[hand_labels[0][0]] + labeled_points[hand_labels[1][0]]
     
+    # MAY BE USED FOR DEBUG
     # paint red the points that belong to the hand clusters
-    for i in range(len(points)):
-        if labels[i] in [h[0] for h in hand_labels]:
-            colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
-    new_pointcloud.colors=colors
+    # for i in range(len(points)):
+    #     if labels[i] in [h[0] for h in hand_labels]:
+    #         colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
+    # new_pointcloud.colors=colors
 
     return new_pointcloud, hand_points, centroids
 
@@ -227,11 +228,11 @@ def main():
             hand_points = np.zeros((1,3))
         hand_points = open3d.utility.Vector3dVector(hand_points)
 
-        movement_speed = movement_speed(prev_centroids, centroids, bbox1.get_center())
+        speed = movement_speed(prev_centroids, centroids, bbox1.get_center())
         if len(bbox1.get_point_indices_within_bounding_box(hand_points)):
-            if not touching_d1 and movement_speed != None and movement_speed > 7:
+            if not touching_d1 and speed != None and speed > 7:
 
-                x=threading.Thread(target=play_music,args=('Kick_2.wav',movement_speed))
+                x=threading.Thread(target=play_music,args=('Kick_2.wav',speed))
                 x.start()
                 drum_n_1.paint_uniform_color(np.array([0.4,0.7,0.4], dtype=np.float64))
             drum_n_1.paint_uniform_color(np.array([0.7,0.4,0.4], dtype=np.float64))
@@ -241,11 +242,12 @@ def main():
             drum_n_1.paint_uniform_color(np.array([0.8,0.8,0.8], dtype=np.float64))
             visualizer.update_geometry(drum_n_1)
             touching_d1=False
-        
+
+        speed = movement_speed(prev_centroids, centroids, bbox2.get_center())
         if len(bbox2.get_point_indices_within_bounding_box(hand_points)):
             
-            if not touching_d2 and movement_speed != None and movement_speed > 7:
-                x=threading.Thread(target=play_music,args=('Kick_3.wav',movement_speed))
+            if not touching_d2 and speed != None and speed > 7:
+                x=threading.Thread(target=play_music,args=('Kick_3.wav',speed))
                 x.start()
             drum_n_2.paint_uniform_color(np.array([0.7,0.4,0.4], dtype=np.float64))
             visualizer.update_geometry(drum_n_2)
