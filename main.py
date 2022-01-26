@@ -28,27 +28,30 @@ def play_music(file, speed):
     sound.play()
 
 
-def process_images(color_stream, depth_stream):
+def get_new_frame(color_stream, depth_stream):
     """return a color and a depth frame from a color and a depth stream"""
     color_image = color_stream.read_frame()
     depth_image = depth_stream.read_frame()
 
     color_image = np.frombuffer(color_image.get_buffer_as_uint8(), np.uint8)
-    color_image = color_image.reshape(480 * 640, 3)
+    color_image = color_image.reshape(480, 640, 3)
     
     depth_image = np.frombuffer(depth_image.get_buffer_as_uint16(), np.uint16)
+    depth_image = depth_image.reshape(480, 640)
+    depth_image = depth_image.astype(np.float32)
 
     return color_image, depth_image
 
 
-def handsPointsCloud(pointcloud, min, max):
+def detect_hands(pointcloud, min, max):
     """search for the point clusters closest to the camera inside a certain z-axis interval"""
+    
+    # crop and downsample the initial pointcloud to heavily reduce the number of points
     bounds = open3d.geometry.AxisAlignedBoundingBox(np.array([-10000000, -10000000, min], dtype=np.float64), np.array([10000000, 10000000, max], dtype=np.float64))
-
     new_pointcloud = pointcloud.crop(bounds)
     new_pointcloud.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
     new_pointcloud = new_pointcloud.voxel_down_sample(20)
-    colors = new_pointcloud.colors
+    
     points = new_pointcloud.points
     
     if new_pointcloud.is_empty():
@@ -62,7 +65,7 @@ def handsPointsCloud(pointcloud, min, max):
     for i in range(len(points)):
         if labels[i] in labeled_points:
             labeled_points[labels[i]].append(points[i])
-        else:
+        elif labels[i]!=-1:
             labeled_points[labels[i]] = [points[i]]
     
     # calculate centroids
@@ -93,21 +96,16 @@ def handsPointsCloud(pointcloud, min, max):
 
     # get the points that belong to the hands
     if len(hand_labels)==0:
-        hand_points = []
+        hand_points = np.zeros((1,3))
     
     elif len(hand_labels)==1:
-        hand_points = labeled_points[hand_labels[0][0]]
+        hand_points = np.vstack(labeled_points[hand_labels[0][0]])
     else:
-        hand_points = labeled_points[hand_labels[0][0]] + labeled_points[hand_labels[1][0]]
-    
-    # MAY BE USED FOR DEBUG
-    # paint red the points that belong to the hand clusters
-    # for i in range(len(points)):
-    #     if labels[i] in [h[0] for h in hand_labels]:
-    #         colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
-    # new_pointcloud.colors=colors
+        hand_points = np.vstack(labeled_points[hand_labels[0][0]] + labeled_points[hand_labels[1][0]])
 
-    return new_pointcloud, hand_points, centroids
+    hand_points = open3d.utility.Vector3dVector(hand_points)
+
+    return hand_points, centroids
 
 
 def exit_key(vis):
@@ -165,6 +163,7 @@ def main():
     camera_params = open3d.io.read_pinhole_camera_parameters("PinholeCameraParameters.json")
     ctr.convert_from_pinhole_camera_parameters(camera_params)
 
+    # get intrinsic parameters from file
     f = open("PinholeCameraParameters.json","r")
     parameters = json.loads(f.read())
     f.close()
@@ -184,25 +183,23 @@ def main():
     visualizer.add_geometry(pointcloud)
     visualizer.add_geometry(drum_n_1)
     visualizer.add_geometry(drum_n_2)
-    Axes = open3d.geometry.TriangleMesh.create_coordinate_frame(10)
-    visualizer.add_geometry(Axes)
-    
-    touching_d1 = False
-    touching_d2 = False
-    prev_centroids = []
     visualizer.update_renderer()
+    
+    # set up open3D camera point of view
     ctr.translate(0,300)
     ctr.rotate(1000,300)
     ctr.set_lookat(np.array([-15,-50,0]))
     ctr.set_zoom(2)
+    
+    # initialize variables used inside the the cicle
+    touching_d1 = False
+    touching_d2 = False
+    prev_centroids = []
+    
     while not exit_flag:
-        color_image, depth_image = process_images(color_stream, depth_stream)
+        color_image, depth_image = get_new_frame(color_stream, depth_stream)
         
-        color_image = color_image.reshape(480, 640,3)
-
-        depth_image = depth_image.reshape(480, 640)
-        depth_image = depth_image.astype(np.float32)
-        
+        # create RGBD images after getting new frame
         color_image = np.ascontiguousarray(color_image)
         depth_image = np.ascontiguousarray(depth_image)
         rgbd = open3d.geometry.RGBDImage.create_from_color_and_depth(
@@ -212,22 +209,21 @@ def main():
             depth_trunc=8000,
             convert_rgb_to_intensity=False
         )
+        
+        # obtain pointcloud
         new_pointcloud = open3d.geometry.PointCloud.create_from_rgbd_image(
             rgbd,
             intrinsic=i_parameters,
         )
 
+        # crop points at zero depth
         bounds = open3d.geometry.AxisAlignedBoundingBox(np.array([-10000000, -10000000, 1], dtype=np.float64), np.array([10000000, 10000000, 10000000], dtype=np.float64))
         new_pointcloud = new_pointcloud.crop(bounds)
 
-        halfpointcloud, hand_points, centroids = handsPointsCloud(new_pointcloud, 20, 150)
-        
-        if len(hand_points):
-            hand_points = np.vstack(hand_points)
-        else:
-            hand_points = np.zeros((1,3))
-        hand_points = open3d.utility.Vector3dVector(hand_points)
+        # detect hands
+        hand_points, centroids = detect_hands(new_pointcloud, 20, 150)
 
+        # calculate hand movement speed and then verify if a sound should happen and its intensity
         speed = movement_speed(prev_centroids, centroids, bbox1.get_center())
         if len(bbox1.get_point_indices_within_bounding_box(hand_points)):
             if not touching_d1 and speed != None and speed > 7:
@@ -264,12 +260,10 @@ def main():
                                     [0, -1, 0, 0],
                                     [0, 0, -1, 0],
                                     [0, 0, 0, 1]])
-        halfpointcloud.points.extend(new_pointcloud.points)
-        halfpointcloud.colors.extend(new_pointcloud.colors)
 
         # Set rendered pointcloud to recorded pointcloud
-        pointcloud.points = halfpointcloud.points
-        pointcloud.colors = halfpointcloud.colors
+        pointcloud.points = new_pointcloud.points
+        pointcloud.colors = new_pointcloud.colors
         
         # Update visualizer
         visualizer.update_geometry(pointcloud)
