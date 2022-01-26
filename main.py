@@ -1,7 +1,5 @@
 import numpy as np
-import cv2 as cv2
 import open3d
-import time
 from copy import deepcopy
 import json
 import math
