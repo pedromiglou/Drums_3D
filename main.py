@@ -48,16 +48,17 @@ def detect_hands(pointcloud, min, max):
     bounds = open3d.geometry.AxisAlignedBoundingBox(np.array([-10000000, -10000000, min], dtype=np.float64), np.array([10000000, 10000000, max], dtype=np.float64))
     new_pointcloud = pointcloud.crop(bounds)
     new_pointcloud.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-    new_pointcloud = new_pointcloud.voxel_down_sample(20)
+    new_pointcloud = new_pointcloud.voxel_down_sample(1)
     
     points = new_pointcloud.points
+    colors = new_pointcloud.colors
     
     if new_pointcloud.is_empty():
         labels = []
     else:
         # obtain the labels for each point
         labels = np.array(new_pointcloud.cluster_dbscan(eps=5, min_points=10))    
-    
+    print(labels)
     # organize the points into lists of points that belong to the same cluster
     labeled_points=dict()
     for i in range(len(points)):
@@ -91,22 +92,37 @@ def detect_hands(pointcloud, min, max):
     hand_labels = sorted(hand_labels, key = lambda x: x[1][0])
 
     centroids = [x[1] for x in hand_labels]
-
     # get the points that belong to the hands
     if len(hand_labels)==0:
         hand_points = np.zeros((1,3))
     
     elif len(hand_labels)==1:
         hand_points = np.vstack(labeled_points[hand_labels[0][0]])
+        for i in range(len(points)):
+            if labels[i] == hand_labels[0][0]:
+                colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
     else:
         hand_points = np.vstack(labeled_points[hand_labels[0][0]] + labeled_points[hand_labels[1][0]])
+        for i in range(len(points)):
+            if labels[i] == hand_labels[0][0]:
+                colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
+        for i in range(len(points)):
+            if labels[i] == hand_labels[1][0]:
+                colors[i][0], colors[i][1], colors[i][2] = 0, 255, 0
+        
+    
+    for i in range(len(points)):
+        if labels[i] == -1:
+            colors[i][0], colors[i][1], colors[i][2] = 0, 0, 255
+    
+    new_pointcloud.colors=colors
 
     hand_points = open3d.utility.Vector3dVector(hand_points)
 
-    return hand_points, centroids
+    return new_pointcloud, hand_points, centroids
 
 
-def exit_key(vis):
+def exit_key(vis, v1, v2):
     """callback function to exit open3D environment"""
     global exit_flag
     exit_flag=True
@@ -219,7 +235,7 @@ def main():
         new_pointcloud = new_pointcloud.crop(bounds)
 
         # detect hands
-        hand_points, centroids = detect_hands(new_pointcloud, 20, 150)
+        halfpointcloud, hand_points, centroids = detect_hands(new_pointcloud, 20, 125)
 
         # calculate hand movement speed and then verify if a sound should happen and its intensity
         speed = movement_speed(prev_centroids, centroids, bbox1.get_center())
@@ -258,10 +274,13 @@ def main():
                                     [0, -1, 0, 0],
                                     [0, 0, -1, 0],
                                     [0, 0, 0, 1]])
+        
+        halfpointcloud.points.extend(new_pointcloud.points)
+        halfpointcloud.colors.extend(new_pointcloud.colors)
 
         # Set rendered pointcloud to recorded pointcloud
-        pointcloud.points = new_pointcloud.points
-        pointcloud.colors = new_pointcloud.colors
+        pointcloud.points = halfpointcloud.points
+        pointcloud.colors = halfpointcloud.colors
         
         # Update visualizer
         visualizer.update_geometry(pointcloud)
