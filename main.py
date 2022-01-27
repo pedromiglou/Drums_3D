@@ -74,7 +74,7 @@ def detect_hands(pointcloud, min, max):
             label_stats[labels[i]][1] += points[i][1]
             label_stats[labels[i]][2] += points[i][2]
             label_stats[labels[i]][3] += 1
-        else:
+        elif labels[i]!=-1:
             label_stats[labels[i]] = [points[i][0], points[i][1], points[i][2], 1]
     
     for k, v in label_stats.items():
