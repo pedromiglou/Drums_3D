@@ -51,14 +51,13 @@ def detect_hands(pointcloud, min, max):
     new_pointcloud = new_pointcloud.voxel_down_sample(1)
     
     points = new_pointcloud.points
-    colors = new_pointcloud.colors
     
     if new_pointcloud.is_empty():
         labels = []
     else:
         # obtain the labels for each point
-        labels = np.array(new_pointcloud.cluster_dbscan(eps=5, min_points=10))    
-    print(labels)
+        labels = np.array(new_pointcloud.cluster_dbscan(eps=5, min_points=5))
+
     # organize the points into lists of points that belong to the same cluster
     labeled_points=dict()
     for i in range(len(points)):
@@ -92,34 +91,20 @@ def detect_hands(pointcloud, min, max):
     hand_labels = sorted(hand_labels, key = lambda x: x[1][0])
 
     centroids = [x[1] for x in hand_labels]
+    
     # get the points that belong to the hands
     if len(hand_labels)==0:
         hand_points = np.zeros((1,3))
     
     elif len(hand_labels)==1:
         hand_points = np.vstack(labeled_points[hand_labels[0][0]])
-        for i in range(len(points)):
-            if labels[i] == hand_labels[0][0]:
-                colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
+
     else:
         hand_points = np.vstack(labeled_points[hand_labels[0][0]] + labeled_points[hand_labels[1][0]])
-        for i in range(len(points)):
-            if labels[i] == hand_labels[0][0]:
-                colors[i][0], colors[i][1], colors[i][2] = 255, 0, 0
-        for i in range(len(points)):
-            if labels[i] == hand_labels[1][0]:
-                colors[i][0], colors[i][1], colors[i][2] = 0, 255, 0
-        
-    
-    for i in range(len(points)):
-        if labels[i] == -1:
-            colors[i][0], colors[i][1], colors[i][2] = 0, 0, 255
-    
-    new_pointcloud.colors=colors
 
     hand_points = open3d.utility.Vector3dVector(hand_points)
 
-    return new_pointcloud, hand_points, centroids
+    return hand_points, centroids
 
 
 def exit_key(vis, v1, v2):
@@ -235,12 +220,12 @@ def main():
         new_pointcloud = new_pointcloud.crop(bounds)
 
         # detect hands
-        halfpointcloud, hand_points, centroids = detect_hands(new_pointcloud, 20, 125)
+        hand_points, centroids = detect_hands(new_pointcloud, 20, 125)
 
         # calculate hand movement speed and then verify if a sound should happen and its intensity
         speed = movement_speed(prev_centroids, centroids, bbox1.get_center())
         if len(bbox1.get_point_indices_within_bounding_box(hand_points)):
-            if not touching_d1 and speed != None and speed > 7:
+            if not touching_d1 and speed != None and speed > 5:
 
                 x=threading.Thread(target=play_music,args=('Kick_2.wav',speed))
                 x.start()
@@ -256,7 +241,7 @@ def main():
         speed = movement_speed(prev_centroids, centroids, bbox2.get_center())
         if len(bbox2.get_point_indices_within_bounding_box(hand_points)):
             
-            if not touching_d2 and speed != None and speed > 7:
+            if not touching_d2 and speed != None and speed > 5:
                 x=threading.Thread(target=play_music,args=('Kick_3.wav',speed))
                 x.start()
             drum_n_2.paint_uniform_color(np.array([0.7,0.4,0.4], dtype=np.float64))
@@ -274,13 +259,10 @@ def main():
                                     [0, -1, 0, 0],
                                     [0, 0, -1, 0],
                                     [0, 0, 0, 1]])
-        
-        halfpointcloud.points.extend(new_pointcloud.points)
-        halfpointcloud.colors.extend(new_pointcloud.colors)
 
         # Set rendered pointcloud to recorded pointcloud
-        pointcloud.points = halfpointcloud.points
-        pointcloud.colors = halfpointcloud.colors
+        pointcloud.points = new_pointcloud.points
+        pointcloud.colors = new_pointcloud.colors
         
         # Update visualizer
         visualizer.update_geometry(pointcloud)
